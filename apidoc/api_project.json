@@ -1,0 +1,15 @@
+{
+  "title": "Users API",
+  "url": "https://localhost:8080/api/",
+  "name": "standard-search",
+  "version": "0.0.0",
+  "description": "",
+  "sampleUrl": false,
+  "apidoc": "0.2.0",
+  "generator": {
+    "name": "apidoc",
+    "time": "2016-07-12T03:00:43.780Z",
+    "url": "http://apidocjs.com",
+    "version": "0.16.1"
+  }
+}

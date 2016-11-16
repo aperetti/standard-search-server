@@ -1,0 +1,23 @@
+// CHANGE THESE VALUES!!! DO NOT USE THE DEFAULTS!!!!
+module.exports = {
+  'secret' : 'supersecretpasscode',
+  'database' : 'mongodb://127.0.0.1:27017/standards',
+  'sqlDb' : {
+    connect: 'mysql://user:password@localhost:3306/standards',
+    database: 'standards',
+    username: 'username',
+    password: 'password'
+  },
+  defaultUsers : 
+  [{
+      email: 'test1',
+      full_name: 'Tester2',
+      password: 'pass'
+    },
+    {
+    email: 'test2',
+    full_name: 'Tester',
+    password: 'pass'
+  }]
+}
+
