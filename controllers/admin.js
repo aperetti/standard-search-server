@@ -14,6 +14,7 @@ var extract = require('pdf-text-extract')
 var gfs = require('../helpers/gridfs')
 var models = require('../orm')
 var sequelize = require('sequelize')
+var tmp = require('tmp')
 /**
 * @apiDefine AdminAccountRequired
 *
@@ -47,7 +48,7 @@ var adminAuth = () => {
   }
 }
 
-router.use(auth(), adminAuth())
+router.use(adminAuth())
 
 /**
 * @api {get} admin/is_admin/ Is Admin?
@@ -75,20 +76,7 @@ router.get('/is_admin', function(req, res) {
 //     cb(null, file.originalname.toLowerCase(), cb)
 //   }
 // })
-
 var storage = multer.memoryStorage()
-
-function filefilter (req, file, cb) {
-  if ( path.extname(file.originalname) === '.pdf') {
-    req.isPdf = true
-    console.log(file)
-    req.filename = file.originalname.toLowerCase()
-    cb(null, true)
-  } else {
-    req.isPdf = false
-    cb(null, false)  
-  }
-}
 
 var upload = multer({
   storage: storage,
@@ -99,24 +87,43 @@ var upload = multer({
   }
 })
 
+function filefilter (req, file, cb) {
+  if ( path.extname(file.originalname) === '.pdf') {
+    req.isPdf = true
+    req.filename = file.originalname.toLowerCase()
+    cb(null, true)
+  } else {
+    req.isPdf = false
+    cb(null, false)  
+  }
+}
+
+
+
 var extractText = function(req, res, next) {
-  if (req.body.file) {
-    extract(appRoot+'/app/temp/'+req.body.filename, {splitPages: false}, function(err, text) {
-    if (err) {
-      console.dir(err)
-      return
-    }
-    var re = /[A-Za-z]{2}\d{2}[A-Za-z]+|[A-Za-z]{1,2}\d{4}[A-Za-z]{0,3}/g
-    var m
-    var ar = []
-    while (m = re.exec(text)) {
-      if (ar.indexOf(m[0]) === -1) {
-        ar.push(m[0])
-      }
-    }
-    req.body.references = ar
-    req.body.text = text
-    next()
+  if (req.file) {
+    tmp.file({postfix: '.pdf'},(err, path, fd, cleanUp) => {
+      if (err) {
+          console.log('ERROR: Could not generate temp')
+          console.log(err)
+          return next()
+        }
+      fs.writeFile(path, req.file.buffer, 'binary', (err, written, buffer) => {
+        if (err) {
+          console.log('ERROR: Could not write to temp file')
+          console.log(err)
+          return next()
+        }
+        extract(path, {splitPages: false}, function (err, text) {
+          if (err) {
+            console.log('ERROR: Could not extract text of PDF')
+            console.log(err)
+            return next()
+          }
+          req.body.text = text[0]
+          next()
+        })
+      })
     })
   } else {
     next()
@@ -148,41 +155,58 @@ var extractText = function(req, res, next) {
 * @apiUse AdminAccountRequired
 * @apiError (406) {JSON} FailedMongoSave Returns an error if Mongo document fails to save
 */
-function createStandard(code, desc, status, menu) {
-  return models.standard.create({
-    description: desc,
-    code: code,
-    status: status,
-    menu_id: menu
+function createStandard(standard, t) {
+  return models.standard.create(standard, {transaction: t})
+}
+
+function createVersion(standard, version, t) {
+  return standard.createVersion(version, {transaction: t})
+}
+
+function updateVersion(standard, note, t) {
+  return standard.getVersions({
+    transaction: t,
+    limit: 1,
+    order: [['createdAt', 'DESC']]
+  }).then(versions => {
+    versions[0].note = note
+    return versions[0].save({transaction: t})
   })
 }
 
-function createVersion(standard, desc, file, note) {
-  return models.standardVersion.create({
-    file: file,
-    date: new Date(),
-    note: note
-  }).then(version => standard.addVersion(version))
+function createReferences(standard, references, t) {
+  console.log(references)
+  return standard.setReferences(references, {transaction: t})
 }
 
 router.post('/add_standard',
   upload.single('pdf'),
   extractText,
   function(req,res) {
-    var code = req.body.code
-    var desc = req.body.desc
-    var file = req.file.buffer
-    var menu = req.body.menu
-    var status = req.body.status || 'ACTIVE'
-    var changelog = req.body.changelog || 'Initial Creation'
-
-    createStandard(code, desc, status, menu)
-      .then((standard) => createVersion(standard, desc, file, changelog))
-      .then((version) => res.status(301).redirect(`/standard/${code}`))
-      .catch((err) => {
-        console.log(err)
-        res.status(415).json({success: false}).end()
-      })
+    var newStandard = {
+      code: req.body.code,
+      description: req.body.desc,
+      menu_id: req.body.menu,
+      status: req.body.status || 'ACTIVE'
+    }
+    var newVersion = {
+      file: req.file.buffer,
+      text: req.body.text || '',
+      note: req.body.changelog || 'Initial Creation'
+    }
+    var references = JSON.parse(req.body.references)
+    references = Array.isArray(references) ? references : []
+    
+    models.sequelize.transaction(t => {
+      return createStandard(newStandard, t)
+      .then((standard) => createVersion(standard, newVersion, t)
+        .then((version) => createReferences(standard, references, t)))
+    })
+    .then((version) => res.status(301).redirect(`/standard/${newStandard.code}`))
+    .catch((err) => {
+      console.log(err)
+      res.status(500).json({success: false}).end()
+    })
   })
 
 /**
@@ -218,19 +242,67 @@ router.post('/add_standard',
         code: req.body.code,
         desc: req.body.desc,
         status: req.body.status,
-        menu: req.body.menu,
+        menu: req.body.menu
       }
-      cb() //WIP
-
-
-      function cb (err,numAffected) { 
-        if (err) {
-          res.status(406).json({err: err}).end()
-        } else {
-          res.status(200).json({updated: numAffected}).end()
-        }
+      var newVersion = {
+        file: req.file && req.file.buffer,
+        note: req.body.note,
+        text: req.body.text || ''
       }
+
+      var references = JSON.parse(req.body.references)
+      references = Array.isArray(references) ? references : []
+
+      models.sequelize.transaction(t => {
+        return models.standard.findById(update.code, {transaction: t})
+        .then(standard => {
+          Object.assign(standard, update)
+          return standard.save({transaction: t})
+          .then(standard => {
+            var versionPromise = newVersion.file ? createVersion(standard, newVersion, t) : updateVersion(standard, newVersion.note, t)
+            return Promise.all([
+              createReferences(standard, references, t),
+              versionPromise
+            ]).then(results => res.status(301).redirect(`/standard/${update.code}`))
+          }).catch(e => {
+          console.log(e)
+          res.status(500).send('failed to update standard').end()
+        })
+      })
     })
+  })
+        
+  router.post('/process_pdf',
+    upload.single('pdf'),
+    extractText,
+    function(req,res) {
+      var text = req.body.text
+      var matches = []
+      var standards = []
+      models.category.findAll()
+      .then(cats => {
+        var keywords
+        for (var i = 0; i < cats.length; i++) {
+          var name = cats[i].name
+          if (cats[i].regex !== "") {
+            var regex = new RegExp(cats[i].regex, 'g')
+            var match
+            while (match = regex.exec(text)) {
+              var ref = match[0].trim()
+              if (standards.indexOf(ref) === -1) {
+                standards.push(ref)
+                matches.push({type: name, match: ref})  
+              }
+            }  
+          }
+        }
+        return res.status(200).json(matches)
+      }).catch(e => {
+        console.log(e)
+        res.status(500).send('Could not process PDF')
+      })
+    }
+  )      
 
 /**
 * @api {delete} deleteStandard Delete a Standard
@@ -253,7 +325,7 @@ router.delete('/delete/:standardId', (req,res) => {
 })
 
 /**
-* @api {get} admin/get_references/ Get Regex References
+* @api {get} admin/categories/ Get Regex References
 * @apiName GetRegexReferences
 * @apiGroup Admin
 * @apiPermission admin
@@ -267,12 +339,18 @@ router.delete('/delete/:standardId', (req,res) => {
 * @apiSuccess (200) Returns a list of references objects containing the keys group, regex, modifiers
 * 
 */
-router.get('/get_references', (req, res) => {
-  return res.status(400).send('Error retrieving references')
+router.get('/categories', (req, res) => {
+  models.category.findAll()
+  .then(categories => {
+    return res.status(200).json(categories)
+  }).catch(err => {
+    console.log(err)
+    return res.status(500).send('Error retrieving references')
+  })
 })
 
 /**
-* @api {get} admin/get_references/ Get Regex References
+* @api {get} admin/save_categories/ Get Regex References
 * @apiName GetRegexReferences
 * @apiGroup Admin
 * @apiPermission admin
@@ -286,8 +364,25 @@ router.get('/get_references', (req, res) => {
 * @apiSuccess (200) Returns a list of references objects containing the keys group, regex, modifiers
 * 
 */
-router.post('/add_references', (req, res) => {
-  return res.status(400).send('WIP Not Implemented')
+router.post('/save_categories', (req, res) => {
+  var types = req.body.types || {}
+  models.sequelize.transaction(t => {
+    return models.category.destroy({where: {name: {$like: '%'}}}, {transaction: t})
+    .then(del => {
+      return models.category.bulkCreate(types,
+        {
+          fields: ['name', 'description', 'regex'],
+          updateOnDuplicate: ['description', 'regex'],
+          transaction: t
+        })
+      .then(inserted => {
+        res.status(200).send('Updated category changes!')
+      }) 
+    })
+  }).catch(e => {
+    console.log(e)
+    res.status(500).send('Could not save category changes!')
+  }) 
 })
 
 router.post('/create_menu/', (req,res) => {
