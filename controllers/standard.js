@@ -15,17 +15,25 @@ var client = new elasticsearch.Client({
   log: 'trace'
 });
 
-router.use(auth())
-  
+function $ (msg) {
+  return console.log(new Date().getSeconds() + ': '+msg)
+}
+ 
 router.get('/pdf/:standard_id', (req,res) => {
   var standardId = req.params.standard_id;
+  // $('getting standard')
   models.standard.findById(standardId)
   .then(standard => {
     return standard.getVersions({
-      order: [sequelize.fn('max', sequelize.col('createdAt'))]
+      limit: 1,
+      order: [ [ 'createdAt', 'DESC']]
     })
   }).then(version => {
-    res.send(new Buffer(version[0].file, 'binary'))
+    // $('got version')
+    if (version.length == 0) return res.status(400).send('Error could not find Standard')
+    res.writeHead(200, {'Content-Type': 'application/pdf'})
+    res.end(new Buffer(version[0].file, 'binary'))
+    // $('sent file')
   }).catch((e) => {
     console.log(e)
     res.status(400).json({message: 'Query failed, see API documents (standards/pdf/:standard_id) .', error: e})
@@ -37,20 +45,31 @@ router.get('/pdf/:standard_id/:revision_id', (req,res) => {
   var sv_id = req.params.sv_id
   models.standardVersion.findById(sv_id)
   .then(version => {
-    res.send(new Buffer(version[0].file, 'binary'))
+    res.writeHead(200, {'Content-Type': 'application/pdf'})
+    res.end(new Buffer(version[0].file, 'binary'))
   }).catch((e) => {
     console.log(e)
     res.status(400).json({message: 'Query failed, see API documents (standards/pdf/:standard_id/:revision_id) .', error: e})
   })
-}) 
+})
 
-router.get('changes/:standard_id', (req, res) => {
+router.get('/nonce/:standard_id', (req, res) => {
+  var standardId = req.params.standard_id;
+  models.tempStandard.create().then(nonce => {
+    res.status(200).send(nonce.id)
+  })
+})
+
+router.get('/revisions/:standard_id', (req, res) => {
   var standardId = req.params.standard_id
   models.standard.findById(standardId)
-  .then(standard => standard.getVersions({
+  .then(standard => {
+    return standard.getVersions({
+    order: [ [ 'createdAt', 'DESC']],
     attributes: {exclude: ['file']}
-  }))
-  .catch(err => {
+  })}).then(versions => {
+    res.status(200).json(versions)
+  }).catch(err => {
     console.log(err)
     res.status(400).send('Error retrieving standard Changes')
   })
@@ -64,23 +83,19 @@ router.get('/all', (req, res) => {
 
 router.get('/lookup/:standard_id', (req, res) => {
   var standardId = req.params.standard_id
-  models.standard.findById(standardId).then(standard => res.status(200).json(standard))
+  models.standard.findOne({
+    where: {code: standardId},
+    include: [
+        {model: models.standardVersion, as: 'versions', attributes: {exclude: ['file']}},
+        {model: models.standard, as: 'references', attributes: ['code', 'description']},
+        {model: models.standard, as: 'referrers', attributes: ['code', 'description']},
+    ]}
+  ).then(standard => res.status(200).json(standard))
   .catch(err => {
     console.log(err)
     res.status(400).send('Could not retrieve standard!')
   })
 })
-
-router.get('/revisions/:standard_id', (req, res) => {
-  var standardId = req.params.standard_id
-  models.standardVersion.findAll({where: {code: standardId}})
-  .then(standard => res.status(200).json(standard))
-  .catch(err => {
-    console.log(err)
-    res.status(400).send('Could not retrieve revisions!')
-  })
-})
-
 
 /* 
 * Validates if a standard exists. 
@@ -101,7 +116,6 @@ router.get('/menu/:id', (req, res) => {
   ]
   
   if (req.params.id == 0 || req.params.id == 'null' || req.params.id == 'undefined') {
-    console.log('test')
     models.menu.findAll({where: {parentId: {$eq: null}}, include: includes})
     .then(menu => res.status(200).json(menu))
     .catch((err) => res.status(400).send('Query Error'))  
