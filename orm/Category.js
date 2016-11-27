@@ -12,6 +12,9 @@ module.exports = function(sequelize, Types) {
 			description: {
 				type: Types.STRING,
 				allowNull: false
+			},
+			regex: {
+				type: Types.STRING
 			}
 		},
         {

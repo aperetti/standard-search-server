@@ -54,6 +54,22 @@ module.exports = function(sequelize, Types) {
 						as: 'versions',
 						foreignKey: 'code'
 					})
+					Standard.belongsToMany(models.standard, {
+						through: 'standardReference',
+						as: {
+							singular: 'reference',
+							plural: 'references'
+						},
+						foreignKey: 'code'
+					})
+					Standard.belongsToMany(models.standard, {
+						through: 'standardReference',
+						as: {
+							singular: 'referrer',
+							plural: 'referrers'
+						},
+						foreignKey: 'reference'
+					})
 				}
 			}
 		}

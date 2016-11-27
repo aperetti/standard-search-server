@@ -22,7 +22,7 @@ module.exports = function(sequelize, Types) {
 			}
 		},
 		{
-      classMethods: {
+      		classMethods: {
 				associate: function(models) {
 					StandardVersion.belongsTo(models.standard, {
 						foreignKey: 'code',
