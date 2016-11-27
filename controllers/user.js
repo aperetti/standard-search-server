@@ -34,7 +34,10 @@ router.get('/get_history/', (req, res) => {
 
   models.user.findById(req.decodedToken.email)
   .then((user) => {
-    user.getHistory().then((history) =>{
+    user.getHistory({
+      limit: 10,
+      order: [ [ 'updatedAt', 'DESC']]
+    }).then((history) =>{
       return res.status(200).json(history);
     }).catch((err) => {
       return res.status(400).send(err);
