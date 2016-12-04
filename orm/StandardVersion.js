@@ -1,4 +1,4 @@
-
+var esRiver = require('../helpers/esRiver')()
 
 'use strict';
 
@@ -22,6 +22,21 @@ module.exports = function(sequelize, Types) {
 			}
 		},
 		{
+			hooks: {
+				afterCreate: function (instance, options) {
+					esRiver.indexStandardVersion(instance.code, {text: instance.text}).then(() => console.log('Updated Standard'))
+				},
+				afterUpdate: function (instance, options) {
+
+					esRiver.indexStandardVersion(instance.code, {text: instance.text}).then(() => console.log('Updated Standard'))
+				},
+				afterSave: function (instance, options) {
+					esRiver.indexStandardVersion(instance.code, {text: instance.text}).then(() => console.log('Updated Standard'))
+				},
+				afterDelete: function (instance, options) {
+					esRiver.deleteStandardVersion(instance.code).then(() => console.log('Deleted Standard'))
+				}
+			},
       		classMethods: {
 				associate: function(models) {
 					StandardVersion.belongsTo(models.standard, {
