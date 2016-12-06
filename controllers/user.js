@@ -17,7 +17,7 @@ router.post('/add_history/:standard_id', (req, res) => {
   .then((history) => {
     return res.status(200).send()
   }).catch((err) => {
-    return res.status(400).send(err)
+    return res.status(400).send('Invalid standard, history not added')
   })
   // MONGO API
   // var userId = req.decodedToken._doc._id
@@ -37,9 +37,10 @@ router.get('/get_history/', (req, res) => {
     user.getHistory({
       limit: 10,
       order: [ [ 'updatedAt', 'DESC']]
-    }).then((history) =>{
-      return res.status(200).json(history);
+    }).then((hists) =>{
+      return res.status(200).json(hists);
     }).catch((err) => {
+      console.log(err)
       return res.status(400).send(err);
     })
   })
@@ -93,7 +94,7 @@ router.get('/projects/owned_projects/:standard_id', function (req, res) {
     include: [{
       model: models.standard,
       as:'standards',
-      where: {code: req.params.standard_id},
+      where: {id: req.params.standard_id},
       required: false
     }]
   })
