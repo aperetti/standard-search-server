@@ -22,9 +22,6 @@ global.ObjectId = function(id) {
 
 //Configuration
 var port = process.env.PORT || 8080;
-mongoose.connect(config.database, { mongos: true });
-module.exports.mongoose = mongoose
-console.log("Mongoose Connection Status: " + mongoose.connection.readyState);
 app.set('apiSecret', config.secret);
 
 //use body parser so we can get infor from POST and/or URL parameters
@@ -59,6 +56,7 @@ models.sequelize.sync({force: false}).then(() => {
 })
 
 function initalizeData() {
+  var standardId = 'c81738dd-f822-4a5a-b580-7889a2baee22'
   return models.user.upsert(config.defaultUsers[0])
   .then(models.user.upsert(config.defaultUsers[1]))
   .then(models.role.upsert({type: 'Admin'}))
@@ -86,11 +84,15 @@ function initalizeData() {
     })
   })
   // Creates Standard
-  .then(() => models.standard.upsert({
-    code: 'A0101', description: '8" Single Helix Anchor', status: 'ACTIVE'}))
+  .then(() => models.standard.insert({
+    id: standardId, code: 'A0101', description: '8" Single Helix Anchor', status: 'ACTIVE'}))
+  .catch(() => new Promise((resolve, reject) => {
+    console.log('Standard Already Exists')
+    return resolve(false)
+  }))
   .then((inserted) => {
     if (inserted) {
-      return models.standard.findById('A0101')
+      return models.standard.findById(standardId)
       .then(standard => standard.setMenu('3'))  
     } else {
       return
@@ -98,7 +100,7 @@ function initalizeData() {
   })
   // Creates Initial Standards Version
   .then((standard) => {
-    models.standard.findById('A0101',{
+    models.standard.findById(standardId,{
       include: {model: models.standardVersion, as: 'versions'}
     }).then(standard => {
       if (standard.versions.length > 0){
@@ -133,7 +135,7 @@ function initalizeData() {
       description: 'Example User Project'
     }).then(project => {
       return user.addProject(project).then(user => {
-        return project.addStandards(['A0101'])
+        return project.addStandards([standardId])
       })
     })
     }
