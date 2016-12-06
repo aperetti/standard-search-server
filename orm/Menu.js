@@ -24,8 +24,7 @@ module.exports = function(sequelize, Types) {
             classMethods: {
                 associate: function(models) {
                     Menu.hasMany(models.standard, {
-                        as: 'standards',
-                        foreignKey: 'menu_id'
+                        as: 'standards'
                     })
                 }
             }
